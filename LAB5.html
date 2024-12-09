@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Отсечение отрезков и многоугольников</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        text-align: center;
+    }
+    canvas {
+        border: 1px solid black;
+        margin-top: 20px;
+        cursor: crosshair;
+    }
+    button {
+        margin: 10px;
+        padding: 10px 20px;
+        font-size: 16px;
+        cursor: pointer;
+    }
+    .coordinates {
+        font-size: 14px;
+        margin-top: 10px;
+        color: #333;
+    }
+</style>
+</head>
+<body>
+<h1>Алгоритмы отсечения отрезков и многоугольников</h1>
+<p>Часть 1: Сазерленд-Коэн. Часть 2: Выпуклый многоугольник.</p>
+<canvas id="canvas" width="800" height="800"></canvas>
+<br>
+<button onclick="switchToPart1()">Часть 1: Отсечение отрезков</button>
+<button onclick="switchToPart2()">Часть 2: Выпуклый многоугольник</button>
+<p class="coordinates" id="coordinates">Координаты: (x: 0, y: 0)</p>
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+
+    const clippingWindow = { xmin: 200, ymin: 200, xmax: 600, ymax: 600 };
+
+    const segments = [
+        { x1: 100, y1: 700, x2: 600, y2: 300 },
+        { x1: 200, y1: 600, x2: 700, y2: 200 },
+        { x1: 400, y1: 100, x2: 600, y2: 800 }
+    ];
+
+    // Изменяемый многоугольник
+    const polygon = [
+        { x: 300, y: 500 },
+        { x: 400, y: 700 },
+        { x: 600, y: 650 },
+        { x: 550, y: 400 },
+        { x: 350, y: 300 }
+    ];
+
+    function computeOutCode(x, y, rect) {
+        const INSIDE = 0, LEFT = 1, RIGHT = 2, BOTTOM = 4, TOP = 8;
+        let code = INSIDE;
+
+        if (x < rect.xmin) code |= LEFT;
+        else if (x > rect.xmax) code |= RIGHT;
+
+        if (y < rect.ymin) code |= BOTTOM;
+        else if (y > rect.ymax) code |= TOP;
+
+        return code;
+    }
+
+    function cohenSutherlandLineClipping(x1, y1, x2, y2, clipRect) {
+        let outCode1 = computeOutCode(x1, y1, clipRect);
+        let outCode2 = computeOutCode(x2, y2, clipRect);
+        let accept = false;
+
+        while (true) {
+            if (!(outCode1 | outCode2)) {
+                accept = true;
+                break;
+            } else if (outCode1 & outCode2) {
+                break;
+            } else {
+                let x, y;
+                const outCodeOut = outCode1 ? outCode1 : outCode2;
+
+                if (outCodeOut & 8) {
+                    x = x1 + (x2 - x1) * (clipRect.ymax - y1) / (y2 - y1);
+                    y = clipRect.ymax;
+                } else if (outCodeOut & 4) {
+                    x = x1 + (x2 - x1) * (clipRect.ymin - y1) / (y2 - y1);
+                    y = clipRect.ymin;
+                } else if (outCodeOut & 2) {
+                    y = y1 + (y2 - y1) * (clipRect.xmax - x1) / (x2 - x1);
+                    x = clipRect.xmax;
+                } else if (outCodeOut & 1) {
+                    y = y1 + (y2 - y1) * (clipRect.xmin - x1) / (x2 - x1);
+                    x = clipRect.xmin;
+                }
+
+                if (outCodeOut === outCode1) {
+                    x1 = x;
+                    y1 = y;
+                    outCode1 = computeOutCode(x1, y1, clipRect);
+                } else {
+                    x2 = x;
+                    y2 = y;
+                    outCode2 = computeOutCode(x2, y2, clipRect);
+                }
+            }
+        }
+
+        if (accept) {
+            return { x1, y1, x2, y2 };
+        }
+
+        return null;
+    }
+
+    function drawAxes() {
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+
+        // Grid
+        ctx.strokeStyle = '#ddd';
+        for (let i = 0; i <= width; i += 50) {
+            ctx.beginPath();
+            ctx.moveTo(i, 0);
+            ctx.lineTo(i, height);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(0, i);
+            ctx.lineTo(width, i);
+            ctx.stroke();
+        }
+
+        // Main axes
+        ctx.strokeStyle = '#000';
+        ctx.beginPath();
+        ctx.moveTo(0, height / 2);
+        ctx.lineTo(width, height / 2);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(width / 2, 0);
+        ctx.lineTo(width / 2, height);
+        ctx.stroke();
+
+        // Coordinate labels
+        ctx.fillStyle = 'black';
+        ctx.font = '12px Arial';
+        for (let i = 50; i <= width; i += 50) {
+            ctx.fillText((i - width / 2).toString(), i, height / 2 + 15);
+            ctx.fillText(((height / 2) - i).toString(), width / 2 + 5, i);
+        }
+    }
+
+    function drawClippingWindow() {
+        ctx.strokeStyle = 'blue';
+        ctx.strokeRect(
+            clippingWindow.xmin,
+            height - clippingWindow.ymin,
+            clippingWindow.xmax - clippingWindow.xmin,
+            -(clippingWindow.ymax - clippingWindow.ymin)
+        );
+    }
+
+    function drawSegments(segments) {
+        segments.forEach(segment => {
+            const clipped = cohenSutherlandLineClipping(
+                segment.x1,
+                segment.y1,
+                segment.x2,
+                segment.y2,
+                clippingWindow
+            );
+
+            ctx.strokeStyle = 'red';
+            ctx.beginPath();
+            ctx.moveTo(segment.x1, height - segment.y1);
+            ctx.lineTo(segment.x2, height - segment.y2);
+            ctx.stroke();
+
+            if (clipped) {
+                ctx.strokeStyle = 'green';
+                ctx.beginPath();
+                ctx.moveTo(clipped.x1, height - clipped.y1);
+                ctx.lineTo(clipped.x2, height - clipped.y2);
+                ctx.stroke();
+            }
+        });
+    }
+
+    function drawClippedPolygon(polygon, clipRect) {
+        ctx.clearRect(0, 0, width, height);
+        drawAxes();
+        drawClippingWindow();
+
+        const colors = [ 'green'];
+        let currentColorIndex = 0;
+
+        for (let i = 0; i < polygon.length; i++) {
+            const start = polygon[i];
+            const end = polygon[(i + 1) % polygon.length];
+
+            const clippedSegment = cohenSutherlandLineClipping(
+                start.x, start.y, end.x, end.y, clipRect
+            );
+
+            // Draw original edge in red
+            ctx.strokeStyle = 'red';
+            ctx.beginPath();
+            ctx.moveTo(start.x, height - start.y);
+            ctx.lineTo(end.x, height - end.y);
+            ctx.stroke();
+
+            // Draw clipped edge in a unique color
+            if (clippedSegment) {
+                ctx.strokeStyle = colors[currentColorIndex % colors.length];
+                ctx.beginPath();
+                ctx.moveTo(clippedSegment.x1, height - clippedSegment.y1);
+                ctx.lineTo(clippedSegment.x2, height - clippedSegment.y2);
+                ctx.stroke();
+
+                currentColorIndex++;
+            }
+        }
+    }
+
+    function switchToPart1() {
+        ctx.clearRect(0, 0, width, height);
+        drawAxes();
+        drawClippingWindow();
+        drawSegments(segments);
+    }
+
+    function switchToPart2() {
+        drawClippedPolygon(polygon, clippingWindow);
+    }
+
+    canvas.addEventListener('mousemove', event => {
+        const rect = canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left - width / 2;
+        const y = (height / 2) - (event.clientY - rect.top);
+        document.getElementById('coordinates').innerText = `Координаты: (x: ${x}, y: ${y})`;
+    });
+
+    switchToPart1();
+</script>
+</body>
+</html>
